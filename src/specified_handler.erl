@@ -196,11 +196,16 @@ upgrade(Req = #{method := Method}, _Env, Handler, HandlerState) ->
 handle_req(Req, Spec, Handler, HandlerState) ->
     Params = params_from_request(Req, Spec),
     {Req1, BodyData} = body_from_request(Req, Spec),
+    {Req2, Params2, BD2, HS2} = case erlang:function_exported(Handler, pre_req, 4) of
+        false ->  {Req1, Params, BodyData, Handler};
+        true ->   Handler:pre_req(Req1, Params, BodyData, HandlerState)
+    end,
+
     Handler:handle_req(
-        Req1,
-        Params,
-        BodyData,
-        HandlerState
+        Req2,
+        Params2,
+        BD2,
+        HS2
     ).
 
 respond(Req, Code = 204, _Value, Opts) ->
@@ -262,6 +267,7 @@ match_params(
     % Pick the default value to use based on type
     DefaultLookupTable = #{
         string => {undefined, fun noop/1},
+        integer => {undefined, fun int_or_incorrect_type/1},
         array => {[], fun wrap_list_if_needed/1}
     },
     #{Type := {DefaultDefault, PostFunc}} = DefaultLookupTable,
@@ -519,4 +525,12 @@ decode_or_throw(Bin, Throw) ->
     case jsx:is_json(Bin) of
         true -> jsx:decode(Bin, [return_maps]);
         false -> throw(Throw)
+    end.
+
+int_or_incorrect_type(Value) ->
+    io:format("Typecheck ~p~n", [Value]),
+    try erlang:binary_to_integer(Value) of
+        IntVal -> IntVal
+    catch
+        error:badarg -> throw({incorrect_type, Value, integer})
     end.
